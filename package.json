@@ -1,0 +1,42 @@
+{
+  "name": "@kepello/nodegraph-scenarios",
+  "version": "0.1.0",
+  "description": "Scenario / flow recovery for @kepello/nodegraph: per L2 capability unit, an ordered inter-cluster trace at static-analysis fidelity. Fifth layer of the Layered Code Abstraction arc.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test --import tsx 'src/**/*.test.ts'",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "@kepello/nodegraph-core": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "@kepello/nodegraph-core": "file:../nodegraph-core"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "license": "MIT",
+  "author": "Carl Lance",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kepello/nodegraph-scenarios.git"
+  }
+}

@@ -1,0 +1,101 @@
+/**
+ * Scenario overlay public types. Each scenario is the static trace of
+ * one L2 capability unit at cluster-to-cluster granularity.
+ */
+
+import type { Edge, Node } from "@kepello/nodegraph-core";
+import { SCENARIO_METADATA_KIND } from "./schema.js";
+
+export interface SourceLocation {
+  line: number;
+  column?: number;
+}
+
+/**
+ * One inter-cluster transition step in a scenario. Captures the call
+ * site (source element, target element, source position) and projects
+ * each end to its containing cluster + annotates with L1 stereotype +
+ * L4 layer info when available.
+ */
+export interface TransitionStep {
+  /** 0-based ordinal in the scenario's step list. */
+  stepIndex: number;
+  sourceCluster: string;
+  targetCluster: string;
+  /** L1 method stereotype of the caller; absent when L1 hasn't run. */
+  sourceStereotype?: string;
+  /** L1 method stereotype of the callee. */
+  targetStereotype?: string;
+  /** L4 layer number of the source cluster; absent when L4 hasn't run. */
+  sourceLayer?: number;
+  /** L4 layer number of the target cluster. */
+  targetLayer?: number;
+  /**
+   * True when this step represents a dynamic-dispatch call site.
+   * Always `false` in v1 because the wire protocol doesn't yet
+   * surface dispatch kind — see Fathom Parked row
+   * `l2-virtual-dispatch-protocol-extension` (3.1.2.1).
+   */
+  isBranching: boolean;
+  /**
+   * For direct calls: just the resolved target. For branching calls
+   * (once supported): every candidate dispatch target.
+   */
+  candidateTargetIds: readonly string[];
+  /** Caller element id. */
+  sourceElementId: string;
+  /** Primary callee element id (or representative candidate). */
+  targetElementId: string;
+  /**
+   * Where in the source element's body the call appears. Used for
+   * step ordering. Optional because the wire protocol marks
+   * `AnalyzerEdge.sourceLocation` as optional on structural edges.
+   */
+  sourceLocation?: SourceLocation;
+}
+
+export interface ScenarioMetadata {
+  kind: typeof SCENARIO_METADATA_KIND;
+  scenarioId: string;
+  capabilityUnitId: string;
+  entryElementId: string;
+  entryName: string;
+  language?: string;
+  stepCount: number;
+  branchingPointCount: number;
+  steps: readonly TransitionStep[];
+  /** Distinct clusters in the order they're first touched. */
+  traversedClusters: readonly string[];
+}
+
+export interface ScenarioInput {
+  scenarioId: string;
+  capabilityUnitId: string;
+  entryElementId: string;
+  entryName: string;
+  language?: string;
+  contentHash: string;
+  steps: readonly TransitionStep[];
+  traversedClusters: readonly string[];
+}
+
+export interface ScenarioNode extends Omit<Node, "metadata"> {
+  metadata: ScenarioMetadata;
+}
+
+export interface ScenarioOverlay {
+  insertScenario(input: ScenarioInput): ScenarioNode;
+  tombstoneScenario(scenarioId: string): void;
+  listScenarios(): ScenarioNode[];
+  getScenario(scenarioId: string): ScenarioNode | undefined;
+  scenarioForUnit(capabilityUnitId: string): ScenarioNode | undefined;
+  /** Outgoing `realizes` edge — exactly one per scenario. */
+  realizesEdge(scenarioId: string): Edge | undefined;
+  /** Outgoing `traverses` edges — one per distinct cluster touched, in step order. */
+  traversesEdges(scenarioId: string): Edge[];
+}
+
+/** Edge type: scenario → L2 capability unit it represents. */
+export const REALIZES_EDGE_TYPE = "realizes";
+/** Edge type: scenario → cluster touched (in order via metadata; `subtype` carries step index). */
+export const TRAVERSES_EDGE_TYPE = "traverses";
