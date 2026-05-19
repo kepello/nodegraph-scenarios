@@ -13,7 +13,7 @@
  * the path for full step inspection.
  */
 
-import type { Edge, GraphLayer, Node } from "@kepello/nodegraph-core";
+import type { Edge, GraphLayer, GraphMutator, Node } from "@kepello/nodegraph-core";
 import {
   SCENARIO_DOMAIN,
   SCENARIO_INDEXES,
@@ -30,21 +30,15 @@ import {
 } from "./types.js";
 
 export class ScenarioOverlayImpl implements ScenarioOverlay {
+  private readonly mutator: GraphMutator<typeof SCENARIO_DOMAIN>;
+
   constructor(private readonly graph: GraphLayer) {
-    try {
-      this.graph.registerOverlay({
+    // Per Fathom row 5.0.42: registerOverlay returns the domain-scoped mutator.
+    this.mutator = this.graph.registerOverlay({
         domain: SCENARIO_DOMAIN,
         metadataSchema: SCENARIO_METADATA_SCHEMA,
         indexes: SCENARIO_INDEXES,
       });
-    } catch (err) {
-      if (
-        !(err instanceof Error) ||
-        !err.message.includes("already registered for domain")
-      ) {
-        throw err;
-      }
-    }
   }
 
   insertScenario(input: ScenarioInput): ScenarioNode {
@@ -66,7 +60,7 @@ export class ScenarioOverlayImpl implements ScenarioOverlay {
     );
     let node: Node;
     if (existing === undefined) {
-      node = this.graph.insertNode({
+      node = this.mutator.insertNode({
         domain: SCENARIO_DOMAIN,
         naturalKey: input.scenarioId,
         contentHash: input.contentHash,
@@ -75,7 +69,7 @@ export class ScenarioOverlayImpl implements ScenarioOverlay {
     } else if (existing.contentHash === input.contentHash) {
       node = existing;
     } else {
-      node = this.graph.supersedeNode(existing.id, {
+      node = this.mutator.supersedeNode(existing.id, {
         contentHash: input.contentHash,
         metadata: metadata as unknown,
       });
@@ -92,18 +86,18 @@ export class ScenarioOverlayImpl implements ScenarioOverlay {
         e.targetId === input.capabilityUnitId ||
         e.targetRef === input.capabilityUnitId;
       if (matches) hasCorrectRealizes = true;
-      else this.graph.tombstoneEdge(e.id);
+      else this.mutator.tombstoneEdge(e.id);
     }
     if (!hasCorrectRealizes) {
       const byId = this.graph.getNodeById(input.capabilityUnitId);
       if (byId !== undefined) {
-        this.graph.insertEdge({
+        this.mutator.insertEdge({
           sourceId: node.id,
           targetId: input.capabilityUnitId,
           type: REALIZES_EDGE_TYPE,
         });
       } else {
-        this.graph.insertEdge({
+        this.mutator.insertEdge({
           sourceId: node.id,
           targetRef: input.capabilityUnitId,
           type: REALIZES_EDGE_TYPE,
@@ -128,14 +122,14 @@ export class ScenarioOverlayImpl implements ScenarioOverlay {
       if (existingTargets.has(clusterId)) return;
       const byId = this.graph.getNodeById(clusterId);
       if (byId !== undefined) {
-        this.graph.insertEdge({
+        this.mutator.insertEdge({
           sourceId: node.id,
           targetId: clusterId,
           type: TRAVERSES_EDGE_TYPE,
           subtype: String(index),
         });
       } else {
-        this.graph.insertEdge({
+        this.mutator.insertEdge({
           sourceId: node.id,
           targetRef: clusterId,
           type: TRAVERSES_EDGE_TYPE,
@@ -160,7 +154,7 @@ export class ScenarioOverlayImpl implements ScenarioOverlay {
           scenarioId,
         );
         if (existing === undefined) return;
-        this.graph.tombstoneNode(existing.id);
+        this.mutator.tombstoneNode(existing.id);
       },
     );
   }
