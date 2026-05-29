@@ -19,6 +19,7 @@ import {
   SCENARIO_INDEXES,
   SCENARIO_METADATA_KIND,
   SCENARIO_METADATA_SCHEMA,
+  SCENARIO_SCHEMA_VERSION,
 } from "./schema.js";
 import {
   REALIZES_EDGE_TYPE,
@@ -36,6 +37,7 @@ export class ScenarioOverlayImpl implements ScenarioOverlay {
     // Per Fathom row 5.0.42: registerOverlay returns the domain-scoped mutator.
     this.mutator = this.graph.registerOverlay({
         domain: SCENARIO_DOMAIN,
+        schemaVersion: SCENARIO_SCHEMA_VERSION,
         metadataSchema: SCENARIO_METADATA_SCHEMA,
         indexes: SCENARIO_INDEXES,
       });

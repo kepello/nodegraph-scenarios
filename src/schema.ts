@@ -8,6 +8,13 @@ import type { IndexSpec, MetadataSchema } from "@kepello/nodegraph-core";
 
 export const SCENARIO_DOMAIN = "scenario";
 
+/**
+ * Per-overlay schema version (substrate 1.12.2). Part of this domain's
+ * public contract; every registrant passes it. Bump when the metadata
+ * schema changes shape; V1 baseline is `1`.
+ */
+export const SCENARIO_SCHEMA_VERSION = 1;
+
 export const SCENARIO_METADATA_KIND = "scenario";
 
 export const SCENARIO_METADATA_SCHEMA: MetadataSchema = {

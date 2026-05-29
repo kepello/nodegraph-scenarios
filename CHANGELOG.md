@@ -2,6 +2,14 @@
 
 All notable changes to `@kepello/nodegraph-scenarios`. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.0] — 2026-05-28
+
+Adopt the per-overlay schema-version stamp (Fathom row 1.12.3). Exports `SCENARIO_SCHEMA_VERSION` (= 1, V1 baseline) and declares it on the overlay's `OverlayRegistration`.
+
+### Changed
+
+- Registration now passes the mandatory `schemaVersion` field added in substrate 1.12.2. Peer dependency on `@kepello/nodegraph-core` retargeted to `^3.0.0`. No behavior change beyond the version stamp.
+
 ## [0.1.0] — 2026-05-14
 
 Initial publish. Fifth layer of the workspace Layered Code Abstraction arc (Fathom work row `l5-scenario-overlay` 3.1.5, per `docs/code_abstraction.md` L5).
