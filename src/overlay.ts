@@ -11,6 +11,49 @@
  * location) lives in `metadata.steps`. Walking edges is the cheap path
  * for "which clusters does this scenario touch?"; walking metadata is
  * the path for full step inspection.
+ *
+ * -----------------------------------------------------------------------
+ * `realizes` targetRef pattern — query-time structured targets
+ * -----------------------------------------------------------------------
+ *
+ * Each `realizes` edge points from a scenario node to its L2 capability
+ * unit. When `ScenarioInput.capabilityUnitId` is NOT yet materialized as
+ * a graph node (the common case — scenarios are often computed from a
+ * cold analysis where L2 units are in a peer graph or haven't been
+ * inserted yet), the edge is written as:
+ *
+ *   insertEdge({ sourceId, targetRef: capabilityUnitId, type: "realizes" })
+ *
+ * where `capabilityUnitId` is the L2 unit's NATURAL KEY — a pure-hex
+ * content hash (e.g. `"bfe93b294554316c"`). This is the "query-time
+ * structured target" pattern:
+ *
+ *   - `targetRef` = unit natural key (not a node id, not a cross-graph URI).
+ *   - Resolution happens at QUERY TIME via `queryEdges({ targetRef: unitKey })`.
+ *   - The substrate MUST NOT eagerly tail-resolve pure-hex `targetRef` values —
+ *     hex strings are maximally ambiguous across domains, and tail-matching
+ *     against a naturalKey index that spans all domains would silently produce
+ *     wrong matches or false positives.
+ *
+ * Why not resolve eagerly?
+ *   - L2 capability-unit natural keys are 16-hex-char content hashes with no
+ *     domain prefix. Any eager "resolve this ref to a node" pass would need to
+ *     scan every domain's naturalKey index, which is both expensive and wrong:
+ *     the same hex string could plausibly appear as a natural key in an
+ *     unrelated domain (file hash, commit hash, etc.).
+ *   - The correct resolution path is: `queryEdges({ targetRef: unitKey,
+ *     type: "realizes" })` or the overlay API `ScenarioOverlay.scenarioForUnit`.
+ *
+ * Consumers MUST use one of:
+ *   1. `graph.queryEdges({ targetRef: capabilityUnitId, type: "realizes" })`
+ *   2. `ScenarioOverlay.scenarioForUnit(capabilityUnitId)` — which implements (1).
+ *   3. `ScenarioOverlay.realizesEdge(scenarioId)` — for the outgoing direction.
+ *
+ * Consumers MUST NOT treat a dangling `realizes` edge as data loss. The
+ * `inspectDangling` tool classifies edges matching this pattern as
+ * "query-time structured targets" and reports them separately from true
+ * danglings — they are expected and indicate correct behavior.
+ * -----------------------------------------------------------------------
  */
 
 import type { Edge, GraphLayer, GraphMutator, Node } from "@kepello/nodegraph-core";

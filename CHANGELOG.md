@@ -2,6 +2,14 @@
 
 All notable changes to `@kepello/nodegraph-scenarios`. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.1] — 2026-06-10
+
+Document the `realizes`-edge targetRef pattern (Fathom row 5.0.96, `l2-realizes-hex-targetref-labeling`). No behavior change — patch bump for doc-only.
+
+### Changed
+
+- **`overlay.ts` module doc** — added a detailed design block ("`realizes` targetRef pattern — query-time structured targets") explaining: `targetRef` on a `realizes` edge carries the L2 capability-unit NATURAL KEY (a pure-hex content hash); the substrate deliberately never tail-resolves pure-hex keys because they are maximally ambiguous across domains; resolution is deferred to query time via `queryEdges({ targetRef })` or `ScenarioOverlay.scenarioForUnit`; consumers MUST use those paths and MUST NOT treat a dangling `realizes` edge as data loss.
+
 ## [0.3.0] — 2026-05-28
 
 Adopt the per-overlay schema-version stamp (Fathom row 1.12.3). Exports `SCENARIO_SCHEMA_VERSION` (= 1, V1 baseline) and declares it on the overlay's `OverlayRegistration`.
