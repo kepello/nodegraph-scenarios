@@ -2,6 +2,18 @@
 
 All notable changes to `@kepello/nodegraph-scenarios`. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.0] — 2026-07-05
+
+Deterministic step-order tiebreak (Fathom row `edge-source-position-provenance`, 5.0.116 leg 3, M2). `compareByLocation` ties — identical line+column, or both edges missing a position — previously fell back to array-sort stability over the caller's arrival order; that order comes from an un-ordered backend query (no `ORDER BY`; row order is an implementation accident, not a contract), so it was not guaranteed stable across rebuilds.
+
+### Changed
+
+- **`compareByLocation`** — tied edges now break on `target` element id (lexicographic) instead of preserving arrival order. Applies to both tie shapes: identical `sourceLine`/`sourceColumn`, and both edges lacking a `sourceLine` entirely.
+
+### Tests
+
+- 2 new `computeScenarios` regression tests pin both tie shapes, each asserting the step order is unchanged when the input `callEdges` array is reversed. 1 new `insertScenario` pin confirms step `sourceLocation` round-trips through `buildMetadata` unchanged (no fix needed there — pinned against future regression). Full suite: 30/30 (27 → 30).
+
 ## [0.3.1] — 2026-06-10
 
 Document the `realizes`-edge targetRef pattern (Fathom row 5.0.96, `l2-realizes-hex-targetref-labeling`). No behavior change — patch bump for doc-only.

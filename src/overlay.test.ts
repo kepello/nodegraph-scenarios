@@ -9,6 +9,7 @@
  *   - scenarioForUnit walks the realizes edge.
  *   - traverses edges carry stepIndex in `subtype`.
  *   - branchingPointCount counts steps where isBranching === true.
+ *   - step `sourceLocation` round-trips through `insertScenario` (5.0.116).
  */
 
 import { test } from "node:test";
@@ -87,6 +88,37 @@ test("insertScenario — persists metadata + realizes + traverses edges", () => 
 
   const traverses = overlay.traversesEdges("sid-1");
   assert.equal(traverses.length, 3);
+});
+
+/**
+ * Fathom row edge-source-position-provenance (5.0.116), leg 3 pin:
+ * `buildMetadata` spreads `input.steps` verbatim into
+ * `metadata.steps` — `sourceLocation` (populated once positions flow
+ * through `computeScenarios`, leg 3 of fathom-cli) round-trips through
+ * `insertScenario` unchanged. No fix required here; pinned so a future
+ * `buildMetadata` refactor can't silently drop the field.
+ */
+test("insertScenario — step sourceLocation round-trips through metadata (5.0.116 leg 3)", () => {
+  const graph = makeGraph();
+  const overlay = makeScenarioOverlay(graph);
+  const node = overlay.insertScenario({
+    scenarioId: "sid-loc",
+    capabilityUnitId: "uid-loc",
+    entryElementId: "createUser",
+    entryName: "createUser",
+    contentHash: "ch-loc",
+    steps: [
+      makeStep(0, "controllers", "domain", { sourceLocation: { line: 10, column: 4 } }),
+      makeStep(1, "domain", "data", { sourceLocation: { line: 30 } }),
+    ],
+    traversedClusters: ["controllers", "domain", "data"],
+  });
+  assert.deepEqual(node.metadata.steps[0].sourceLocation, { line: 10, column: 4 });
+  assert.deepEqual(node.metadata.steps[1].sourceLocation, { line: 30 });
+
+  const fetched = overlay.getScenario("sid-loc");
+  assert.deepEqual(fetched?.metadata.steps[0].sourceLocation, { line: 10, column: 4 });
+  assert.deepEqual(fetched?.metadata.steps[1].sourceLocation, { line: 30 });
 });
 
 test("insertScenario — idempotent on identical content-hash", () => {

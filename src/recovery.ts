@@ -37,6 +37,8 @@ export interface UnitInput {
  * One directed call edge with source position info. `sourceLine` /
  * `sourceColumn` mirror the wire-protocol `AnalyzerEdge.sourceLocation`
  * shape. Missing positions sort to the end of the unit's step list.
+ * Ties (identical line+column, or both missing a position) break on
+ * `target` (lexicographic) — see `compareByLocation` (5.0.116 M2).
  */
 export interface CallEdge {
   source: string;
@@ -173,16 +175,25 @@ export function computeScenarios(
 }
 
 function compareByLocation(a: CallEdge, b: CallEdge): number {
-  // Edges with no sourceLine sort last; among those, preserve input order
-  // (return 0). This keeps the algorithm stable for callers that emit
-  // structural edges (no sourceLocation) interleaved with call edges.
-  if (a.sourceLine === undefined && b.sourceLine === undefined) return 0;
+  // Edges with no sourceLine sort last. Ties — either both missing a
+  // position, or an identical line+column — break on target element id
+  // (lexicographic). Fathom row edge-source-position-provenance
+  // (5.0.116), M2: `input.callEdges` arrival order comes from the
+  // caller's backend query, which issues no `ORDER BY` (row order is
+  // an implementation accident, not a contract) — relying on it for a
+  // tie would make step order unstable across rebuilds. The target-id
+  // tiebreak makes tied steps deterministic independent of arrival
+  // order.
+  if (a.sourceLine === undefined && b.sourceLine === undefined) {
+    return a.target.localeCompare(b.target);
+  }
   if (a.sourceLine === undefined) return 1;
   if (b.sourceLine === undefined) return -1;
   if (a.sourceLine !== b.sourceLine) return a.sourceLine - b.sourceLine;
   const ac = a.sourceColumn ?? 0;
   const bc = b.sourceColumn ?? 0;
-  return ac - bc;
+  if (ac !== bc) return ac - bc;
+  return a.target.localeCompare(b.target);
 }
 
 function buildLocation(line: number, column?: number): SourceLocation {

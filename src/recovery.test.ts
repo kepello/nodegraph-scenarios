@@ -11,6 +11,8 @@
  *   - Self-loops are no-ops (same source/target cluster collapses).
  *   - Empty input → empty result.
  *   - Edges with no sourceLine sort to the end of the unit's edges.
+ *   - Ties (identical line+column, or both missing a position) break by
+ *     target id, independent of the edges' arrival order (5.0.116 M2).
  *   - isBranching is false in v1 (dispatch info absent).
  *   - Determinism: same input → same output.
  */
@@ -206,6 +208,71 @@ test("computeScenarios — edges with no sourceLine sort to the end", () => {
   });
   const targets = result.scenarios[0].steps.map((s) => s.targetElementId);
   assert.deepEqual(targets, ["first", "second", "noLine"]);
+});
+
+/**
+ * Regression for Fathom row edge-source-position-provenance (5.0.116),
+ * M2 (deterministic step order). `compareByLocation` ties (same
+ * line+column, or both missing a position) fell back to array-sort
+ * stability over the CALLER's arrival order — and that order comes
+ * from an un-ordered backend `SELECT` (nodegraph-sqlite issues no
+ * `ORDER BY`; row order is an implementation accident, not a
+ * contract), so it is NOT guaranteed stable across rebuilds. Pin a
+ * final tiebreak (target element id, lexicographic) so tied edges
+ * sort identically regardless of arrival order.
+ */
+test("computeScenarios — ties on identical line+column break by target id, independent of arrival order", () => {
+  const input = {
+    units: [unit({ unitId: "u", entryElementId: "entry" })],
+    callEdges: [
+      edge("entry", "zTarget", 1, 1),
+      edge("entry", "aTarget", 1, 1),
+    ],
+    clusterByElement: new Map([
+      ["entry", "c0"],
+      ["zTarget", "c1"],
+      ["aTarget", "c2"],
+    ]),
+  };
+  const targets = computeScenarios(input).scenarios[0].steps.map((s) => s.targetElementId);
+  assert.deepEqual(targets, ["aTarget", "zTarget"]);
+
+  const reversedTargets = computeScenarios({
+    ...input,
+    callEdges: [...input.callEdges].reverse(),
+  }).scenarios[0].steps.map((s) => s.targetElementId);
+  assert.deepEqual(
+    reversedTargets,
+    targets,
+    "tie order must not depend on the edges' arrival order",
+  );
+});
+
+test("computeScenarios — edges with no position break ties by target id, independent of arrival order", () => {
+  const input = {
+    units: [unit({ unitId: "u", entryElementId: "entry" })],
+    callEdges: [
+      edge("entry", "zTarget"),
+      edge("entry", "aTarget"),
+    ],
+    clusterByElement: new Map([
+      ["entry", "c0"],
+      ["zTarget", "c1"],
+      ["aTarget", "c2"],
+    ]),
+  };
+  const targets = computeScenarios(input).scenarios[0].steps.map((s) => s.targetElementId);
+  assert.deepEqual(targets, ["aTarget", "zTarget"]);
+
+  const reversedTargets = computeScenarios({
+    ...input,
+    callEdges: [...input.callEdges].reverse(),
+  }).scenarios[0].steps.map((s) => s.targetElementId);
+  assert.deepEqual(
+    reversedTargets,
+    targets,
+    "tie order must not depend on the edges' arrival order",
+  );
 });
 
 test("computeScenarios — determinism: same input → same output", () => {
