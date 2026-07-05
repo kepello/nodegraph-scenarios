@@ -2,6 +2,20 @@
 
 All notable changes to `@kepello/nodegraph-scenarios`. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.1] — 2026-07-06
+
+**Reviewer F1 fix (HIGH, confirmed by execution) on the 5.0.116 wave — the 0.4.0 tiebreak keyed ties on `target`, which is itself a substrate node id minted as a RANDOM UUIDv4 per insert (`nodegraph-core` `graph-layer.ts:505`), NOT rebuild-stable.** Tied steps (identical position, or both missing a position — every .NET/Swift edge until position parity lands) ordered randomly across independent clean rebuilds of the same source, because the fresh UUIDs minted each rebuild compare differently — the L5 baseline's zero-divergence gate would fail on position-less scenarios. The 0.4.0 shipped tie tests used stable string ids (`"aTarget"`/`"zTarget"`) so they could never witness this — false green.
+
+**Correction to the 0.4.0 changelog entry below:** its language claimed the target-id tiebreak "makes tied steps deterministic independent of arrival order," and implied this delivers cross-rebuild stability. That claim is only half true — it IS arrival-order-independent within a single graph's lifetime, but it is NOT rebuild-stable, because `target` itself changes identity (fresh UUID) on every rebuild. Cross-rebuild stability is what THIS release actually delivers, via `targetKey`.
+
+### Changed
+
+- **`CallEdge`** gains an optional `targetKey?: string` — a rebuild-stable identifier for `target` (the target element's natural key). `compareByLocation`'s tiebreak now prefers `targetKey` when supplied, falling back to `target` for callers that don't supply one (API-compatible; determinism is guaranteed only when `targetKey` is supplied). Applies to both tie shapes: identical `sourceLine`/`sourceColumn`, and both edges lacking a `sourceLine` entirely.
+
+### Tests
+
+- 1 new `computeScenarios` regression: two independent runs over the same logical edges (same `source`, same `targetKey`) with DIFFERENT `target` UUID values (modeling fresh mints across rebuilds) — asserts the step sequence, projected onto the stable `targetKey`, is IDENTICAL across both runs. RED against the pre-fix tiebreak (order flips with the UUIDs: run1 → `["widgetRepo","authService"]`, run2 → `["authService","widgetRepo"]`); GREEN after. Existing arrival-order-permutation tie tests kept unchanged. Full suite: 31/31 (30 → 31).
+
 ## [0.4.0] — 2026-07-05
 
 Deterministic step-order tiebreak (Fathom row `edge-source-position-provenance`, 5.0.116 leg 3, M2). `compareByLocation` ties — identical line+column, or both edges missing a position — previously fell back to array-sort stability over the caller's arrival order; that order comes from an un-ordered backend query (no `ORDER BY`; row order is an implementation accident, not a contract), so it was not guaranteed stable across rebuilds.

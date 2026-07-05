@@ -275,6 +275,93 @@ test("computeScenarios — edges with no position break ties by target id, indep
   );
 });
 
+/**
+ * Regression for Fathom row edge-source-position-provenance (5.0.116),
+ * reviewer F1 (HIGH, confirmed by execution). The 0.4.0 tiebreak keyed
+ * ties on `target` — but `target` is a substrate node id minted as a
+ * RANDOM UUIDv4 per insert (nodegraph-core `graph-layer.ts:505`), NOT
+ * rebuild-stable. Tied steps (identical position, or both missing a
+ * position — every .NET/Swift edge until position parity lands) would
+ * order randomly across independent clean rebuilds of the SAME source,
+ * because the fresh UUIDs minted each rebuild compare differently.
+ *
+ * This fixture models two independent rebuilds of the same logical
+ * edges: same `source`, same `targetKey` (the rebuild-stable natural
+ * key), but DIFFERENT `target` UUID values (fresh mints). Asserts the
+ * step sequence — projected onto the stable `targetKey` — is IDENTICAL
+ * across both runs.
+ *
+ * RED against the pre-fix tiebreak (keyed on `target` alone, ignoring
+ * `targetKey`): the chosen UUID pairs are constructed so `target`
+ * comparison flips order between the two runs while `targetKey`
+ * comparison does not — so the old code's step order differs between
+ * "rebuild 1" and "rebuild 2" even though the logical scenario is
+ * unchanged. GREEN once the tiebreak prefers `targetKey`.
+ */
+test("computeScenarios — tie order is rebuild-stable via targetKey, independent of remint UUIDs (5.0.116 reviewer F1)", () => {
+  // Run 1's UUIDs.
+  const RUN1_WIDGET_REPO = "11111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const RUN1_AUTH_SERVICE = "99999999-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  // Run 2's UUIDs — fresh mints for the SAME two logical targets.
+  // Chosen so `target`-only comparison FLIPS vs. run 1 ("111..." <
+  // "999..." but "222..." < "888...", so a naive `target` tiebreak
+  // orders widgetRepo first in run 1 and authService first in run 2)
+  // while `targetKey` comparison ("authService" < "widgetRepo") stays
+  // constant across both runs.
+  const RUN2_WIDGET_REPO = "88888888-cccc-4ccc-8ccc-cccccccccccc";
+  const RUN2_AUTH_SERVICE = "22222222-dddd-4ddd-8ddd-dddddddddddd";
+
+  const targetKeyByTarget = new Map([
+    [RUN1_WIDGET_REPO, "widgetRepo"],
+    [RUN1_AUTH_SERVICE, "authService"],
+    [RUN2_WIDGET_REPO, "widgetRepo"],
+    [RUN2_AUTH_SERVICE, "authService"],
+  ]);
+
+  const clusterByElement = new Map([
+    ["entry", "controllers"],
+    [RUN1_WIDGET_REPO, "dataCluster"],
+    [RUN1_AUTH_SERVICE, "authCluster"],
+    [RUN2_WIDGET_REPO, "dataCluster"],
+    [RUN2_AUTH_SERVICE, "authCluster"],
+  ]);
+
+  // Both edges miss a position — the tie shape every .NET/Swift edge
+  // hits until position parity lands.
+  const run1 = computeScenarios({
+    units: [unit({ unitId: "u", entryElementId: "entry" })],
+    callEdges: [
+      { ...edge("entry", RUN1_WIDGET_REPO), targetKey: "widgetRepo" },
+      { ...edge("entry", RUN1_AUTH_SERVICE), targetKey: "authService" },
+    ],
+    clusterByElement,
+  });
+
+  const run2 = computeScenarios({
+    units: [unit({ unitId: "u", entryElementId: "entry" })],
+    callEdges: [
+      { ...edge("entry", RUN2_WIDGET_REPO), targetKey: "widgetRepo" },
+      { ...edge("entry", RUN2_AUTH_SERVICE), targetKey: "authService" },
+    ],
+    clusterByElement,
+  });
+
+  const projectedTargetKeys1 = run1.scenarios[0].steps.map(
+    (s) => targetKeyByTarget.get(s.targetElementId),
+  );
+  const projectedTargetKeys2 = run2.scenarios[0].steps.map(
+    (s) => targetKeyByTarget.get(s.targetElementId),
+  );
+
+  assert.deepEqual(
+    projectedTargetKeys1,
+    projectedTargetKeys2,
+    `step order must be rebuild-stable projected onto targetKey; run1=${JSON.stringify(projectedTargetKeys1)} run2=${JSON.stringify(projectedTargetKeys2)}`,
+  );
+  // Pin the actual stable order too: authService < widgetRepo lexically.
+  assert.deepEqual(projectedTargetKeys1, ["authService", "widgetRepo"]);
+});
+
 test("computeScenarios — determinism: same input → same output", () => {
   const input = {
     units: [

@@ -38,13 +38,32 @@ export interface UnitInput {
  * `sourceColumn` mirror the wire-protocol `AnalyzerEdge.sourceLocation`
  * shape. Missing positions sort to the end of the unit's step list.
  * Ties (identical line+column, or both missing a position) break on
- * `target` (lexicographic) — see `compareByLocation` (5.0.116 M2).
+ * `targetKey` when supplied, else `target` (lexicographic) — see
+ * `compareByLocation` (5.0.116 M2, reviewer F1 fix).
  */
 export interface CallEdge {
   source: string;
   target: string;
   sourceLine?: number;
   sourceColumn?: number;
+  /**
+   * Rebuild-stable identifier for `target` — the target element's
+   * natural key. `target` itself is a substrate node id, minted fresh
+   * (random UUIDv4) on every insert; it is NOT stable across
+   * independent rebuilds of the same source. `compareByLocation`'s
+   * tiebreak prefers `targetKey` when supplied so tied steps sort
+   * identically across rebuilds, not just across arrival orders of a
+   * single run. Callers that omit `targetKey` fall back to `target` —
+   * API-compatible, but determinism is guaranteed ONLY across a single
+   * graph's lifetime (rebuild-to-rebuild stability requires
+   * `targetKey`). Fathom row `edge-source-position-provenance`
+   * (5.0.116), reviewer F1 fix: the 0.4.0 tiebreak keyed on `target`
+   * alone, which is exactly the unstable identifier it was meant to
+   * route around for every tie shape (including the both-missing-
+   * position shape, which is EVERY .NET/Swift edge until position
+   * parity lands).
+   */
+  targetKey?: string;
 }
 
 export interface ComputeScenariosInput {
@@ -176,16 +195,22 @@ export function computeScenarios(
 
 function compareByLocation(a: CallEdge, b: CallEdge): number {
   // Edges with no sourceLine sort last. Ties — either both missing a
-  // position, or an identical line+column — break on target element id
-  // (lexicographic). Fathom row edge-source-position-provenance
-  // (5.0.116), M2: `input.callEdges` arrival order comes from the
-  // caller's backend query, which issues no `ORDER BY` (row order is
-  // an implementation accident, not a contract) — relying on it for a
-  // tie would make step order unstable across rebuilds. The target-id
-  // tiebreak makes tied steps deterministic independent of arrival
-  // order.
+  // position, or an identical line+column — break on `targetKey` when
+  // supplied, else `target` (lexicographic). Fathom row
+  // edge-source-position-provenance (5.0.116), M2 + reviewer F1 fix:
+  // `input.callEdges` arrival order comes from the caller's backend
+  // query, which issues no `ORDER BY` (row order is an implementation
+  // accident, not a contract) — relying on it for a tie would make
+  // step order unstable across rebuilds. The original M2 fix keyed the
+  // tiebreak on `target` alone, but `target` is itself a substrate node
+  // id minted fresh (random UUIDv4) per insert — NOT rebuild-stable —
+  // so that tiebreak was only arrival-order-stable within a single
+  // graph, not rebuild-stable across independent rebuilds. `targetKey`
+  // (the target's natural key, rebuild-stable by construction) is the
+  // tiebreak's actual determinism source when supplied; `target`
+  // remains the fallback for callers that don't have one.
   if (a.sourceLine === undefined && b.sourceLine === undefined) {
-    return a.target.localeCompare(b.target);
+    return tieKey(a).localeCompare(tieKey(b));
   }
   if (a.sourceLine === undefined) return 1;
   if (b.sourceLine === undefined) return -1;
@@ -193,7 +218,11 @@ function compareByLocation(a: CallEdge, b: CallEdge): number {
   const ac = a.sourceColumn ?? 0;
   const bc = b.sourceColumn ?? 0;
   if (ac !== bc) return ac - bc;
-  return a.target.localeCompare(b.target);
+  return tieKey(a).localeCompare(tieKey(b));
+}
+
+function tieKey(edge: CallEdge): string {
+  return edge.targetKey ?? edge.target;
 }
 
 function buildLocation(line: number, column?: number): SourceLocation {
