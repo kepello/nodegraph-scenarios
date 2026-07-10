@@ -2,6 +2,19 @@
 
 All notable changes to `@kepello/nodegraph-scenarios`. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.5.0] — 2026-07-10
+
+`computeScenarioId` migrated onto `@kepello/nodegraph-core`'s shared `shortContentHash` helper. Step 4 of Fathom row `0.3.2.f8` (identity-hash-helper-consolidation). Behavior-preserving — golden-pinned; no id change → no downstream cache concern from this package.
+
+### Changed
+
+- `computeScenarioId` now calls `shortContentHash([capabilityUnitId, capabilityUnitContentHash])` instead of hand-rolling the sha256-then-slice(0,16) assembly. Local `SHORT_HASH_LENGTH` const removed.
+- Peer dependency on `@kepello/nodegraph-core` retargeted `^5.7.1` → `^5.12.0` (introduces `shortContentHash`).
+
+### Tests
+
+- 1 new golden-pin regression test: fixed input `computeScenarioId("unit-golden-id", "unit-golden-contenthash")` asserts the exact pre-migration literal `72485e4963c0698e`. Captured green against the un-migrated code, stayed green after the migration — byte-identity confirmed. 32/32 tests pass (was 31).
+
 ## [0.4.1] — 2026-07-06
 
 **Reviewer F1 fix (HIGH, confirmed by execution) on the 5.0.116 wave — the 0.4.0 tiebreak keyed ties on `target`, which is itself a substrate node id minted as a RANDOM UUIDv4 per insert (`nodegraph-core` `graph-layer.ts:505`), NOT rebuild-stable.** Tied steps (identical position, or both missing a position — every .NET/Swift edge until position parity lands) ordered randomly across independent clean rebuilds of the same source, because the fresh UUIDs minted each rebuild compare differently — the L5 baseline's zero-divergence gate would fail on position-less scenarios. The 0.4.0 shipped tie tests used stable string ids (`"aTarget"`/`"zTarget"`) so they could never witness this — false green.

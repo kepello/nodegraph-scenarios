@@ -35,3 +35,12 @@ test("computeScenarioId — short fixed-width hex", () => {
   const id = computeScenarioId("u", "ch");
   assert.match(id, /^[0-9a-f]{16}$/);
 });
+
+test("computeScenarioId — golden pin (byte-identity across the shortContentHash migration)", () => {
+  // Captured against the pre-migration sha256(capabilityUnitId + '\n' +
+  // capabilityUnitContentHash) assembly. Must stay byte-identical after
+  // routing through the shared shortContentHash helper — id churn here is
+  // a supersession storm.
+  const id = computeScenarioId("unit-golden-id", "unit-golden-contenthash");
+  assert.equal(id, "72485e4963c0698e");
+});

@@ -12,17 +12,11 @@
  * v1 leaves to the operator (via `displayName` overrides).
  */
 
-import { createHash } from "node:crypto";
-
-const SHORT_HASH_LENGTH = 16;
+import { shortContentHash } from "@kepello/nodegraph-core";
 
 export function computeScenarioId(
   capabilityUnitId: string,
   capabilityUnitContentHash: string,
 ): string {
-  const hasher = createHash("sha256");
-  hasher.update(capabilityUnitId);
-  hasher.update("\n");
-  hasher.update(capabilityUnitContentHash);
-  return hasher.digest("hex").slice(0, SHORT_HASH_LENGTH);
+  return shortContentHash([capabilityUnitId, capabilityUnitContentHash]);
 }
