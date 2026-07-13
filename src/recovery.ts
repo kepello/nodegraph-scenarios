@@ -140,12 +140,30 @@ export function computeScenarios(
       const srcCluster = input.clusterByElement.get(edge.source);
       const tgtCluster = input.clusterByElement.get(edge.target);
       if (srcCluster === undefined || tgtCluster === undefined) continue;
-      if (srcCluster === tgtCluster) continue; // intra-cluster, skip
+
+      // Fathom row `l5-intracluster-step-sparsity` (3.1.5.3): this used to be
+      //     `if (srcCluster === tgtCluster) continue;  // intra-cluster, skip`
+      // which discarded **83.6% of all closure call edges** (2,089 of 2,498 on the
+      // Fathom corpus), projecting what survived onto just 45 cluster-pairs. Distinct
+      // operations therefore handed L7a byte-identical step streams — the root cause of
+      // L7a's confidence saturation, and the reason 1,090 of 1,220 scenarios had ZERO
+      // steps (569 of them lost EVERY call to this line; only 490 were genuine leaves).
+      //
+      // The signal was always in the fact graph; L5 simply chose not to emit it. Its
+      // gates passed honestly because they measured what L5 CHOSE to emit and never
+      // whether that choice carried enough information for the layer above — precisely
+      // the emission-vs-resolution completeness blind spot `baselines.md` warns about.
+      //
+      // Intra-cluster steps are now EMITTED and MARKED. The marker is not decoration:
+      // it keeps the semantic change observable rather than silent, so a consumer can
+      // still recover the old inter-cluster-only projection if it genuinely wants it.
+      const intraCluster = srcCluster === tgtCluster;
 
       const step: TransitionStep = {
         stepIndex: steps.length,
         sourceCluster: srcCluster,
         targetCluster: tgtCluster,
+        intraCluster,
         sourceStereotype: input.stereotypeByElement?.get(edge.source),
         targetStereotype: input.stereotypeByElement?.get(edge.target),
         sourceLayer: input.layerByCluster?.get(srcCluster),

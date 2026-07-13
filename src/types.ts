@@ -22,6 +22,17 @@ export interface TransitionStep {
   stepIndex: number;
   sourceCluster: string;
   targetCluster: string;
+  /**
+   * True when the call stayed INSIDE one cluster (`sourceCluster === targetCluster`).
+   *
+   * Fathom row `l5-intracluster-step-sparsity` (3.1.5.3). These steps used to be DISCARDED
+   * — 83.6% of all closure call edges — which starved L7a's signature and was the root
+   * cause of its confidence saturation. They are now emitted, and this marker keeps the
+   * change OBSERVABLE rather than silent (no-silent-degradation): a consumer that genuinely
+   * wants the old inter-cluster-only projection can still recover it by filtering on this
+   * flag, instead of the projection being imposed on everyone.
+   */
+  intraCluster: boolean;
   /** L1 method stereotype of the caller; absent when L1 hasn't run. */
   sourceStereotype?: string;
   /** L1 method stereotype of the callee. */

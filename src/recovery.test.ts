@@ -3,12 +3,12 @@
  *
  *   - One scenario per L2 unit.
  *   - Steps emitted in lexical source-position order.
- *   - Intra-cluster calls do not emit steps (collapse).
+ *   - Intra-cluster calls DO emit steps, marked `intraCluster: true` (row 3.1.5.3).
  *   - Each step crosses a cluster boundary.
  *   - traversedClusters lists distinct clusters in first-seen order.
  *   - Stereotype + layer annotations populate when provided.
  *   - Unknown cluster (element not in clusterByElement) → call skipped.
- *   - Self-loops are no-ops (same source/target cluster collapses).
+ *   - Same-cluster calls emit a step marked `intraCluster: true` (row 3.1.5.3).
  *   - Empty input → empty result.
  *   - Edges with no sourceLine sort to the end of the unit's edges.
  *   - Ties (identical line+column, or both missing a position) break by
@@ -88,7 +88,13 @@ test("computeScenarios — steps emitted in lexical source-position order", () =
   assert.equal(steps[2].targetElementId, "C");
 });
 
-test("computeScenarios — intra-cluster calls collapse (no step)", () => {
+test("computeScenarios — intra-cluster calls EMIT a step, marked intraCluster (Fathom 3.1.5.3)", () => {
+  // This test previously asserted the OPPOSITE — that intra-cluster calls collapse to
+  // nothing — and so PINNED Fathom row `l5-intracluster-step-sparsity` (3.1.5.3) as if it
+  // were intended behaviour. That skip discarded 83.6% of all closure call edges, starved
+  // L7a's shape signature, and was the root cause of its confidence saturation. The steps
+  // are now emitted and MARKED, so the projection is a consumer's choice rather than an
+  // imposition (no-silent-degradation).
   const result = computeScenarios({
     units: [
       unit({
@@ -100,7 +106,7 @@ test("computeScenarios — intra-cluster calls collapse (no step)", () => {
     callEdges: [
       // entry and helper are both in `domain` cluster — intra-cluster.
       edge("entry", "helper", 1),
-      // entry → telemetry crosses boundary.
+      // entry → telemetry crosses a boundary.
       edge("entry", "logActivity", 2),
     ],
     clusterByElement: new Map([
@@ -110,9 +116,66 @@ test("computeScenarios — intra-cluster calls collapse (no step)", () => {
     ]),
   });
   const steps = result.scenarios[0].steps;
-  // Only the cross-boundary step is emitted.
-  assert.equal(steps.length, 1);
-  assert.equal(steps[0].targetCluster, "telemetry");
+  assert.equal(steps.length, 2, "BOTH the intra-cluster call and the crossing must emit a step");
+
+  assert.equal(steps[0].intraCluster, true);
+  assert.equal(steps[0].sourceCluster, "domain");
+  assert.equal(steps[0].targetCluster, "domain");
+  assert.equal(steps[0].targetElementId, "helper");
+
+  assert.equal(steps[1].intraCluster, false);
+  assert.equal(steps[1].targetCluster, "telemetry");
+
+  // The old projection is still RECOVERABLE — that is the point of the marker.
+  assert.equal(steps.filter((s) => !s.intraCluster).length, 1);
+});
+
+test("computeScenarios — two scenarios with IDENTICAL crossings but different intra-cluster structure are DISTINGUISHABLE (Fathom 3.1.5.3, the red fixture)", () => {
+  // The defect, stated as a test: before the fix these two produced byte-identical step
+  // streams (one crossing each), so L7a could not tell them apart and scored them 1.0
+  // similar. They call a DIFFERENT number of things inside their own cluster.
+  const clusterByElement = new Map([
+    ["a", "domain"],
+    ["b", "domain"],
+    ["h1", "domain"],
+    ["h2", "domain"],
+    ["log", "telemetry"],
+  ]);
+  const result = computeScenarios({
+    units: [
+      unit({ unitId: "u1", entryElementId: "a", ownedElementIds: ["h1", "h2"] }),
+      unit({ unitId: "u2", entryElementId: "b", ownedElementIds: ["h1"] }),
+    ],
+    callEdges: [
+      // scenario A: two intra-cluster calls, then one crossing.
+      edge("a", "h1", 1),
+      edge("a", "h2", 2),
+      edge("a", "log", 3),
+      // scenario B: ONE intra-cluster call, then the SAME crossing.
+      edge("b", "h1", 1),
+      edge("b", "log", 2),
+    ],
+    clusterByElement,
+  });
+  const [sa, sb] = result.scenarios;
+  assert.equal(sa.steps.length, 3);
+  assert.equal(sb.steps.length, 2);
+
+  // The INTER-cluster projections are identical — which is exactly why the old code
+  // could not distinguish them.
+  const interA = sa.steps.filter((s) => !s.intraCluster);
+  const interB = sb.steps.filter((s) => !s.intraCluster);
+  assert.deepEqual(
+    interA.map((s) => `${s.sourceCluster}->${s.targetCluster}`),
+    interB.map((s) => `${s.sourceCluster}->${s.targetCluster}`),
+    "the crossings are identical — the old basis saw nothing else",
+  );
+
+  // But the full step streams now differ. That is the whole fix.
+  assert.notDeepEqual(
+    sa.steps.map((s) => s.targetElementId),
+    sb.steps.map((s) => s.targetElementId),
+  );
 });
 
 test("computeScenarios — traversedClusters lists distinct clusters in first-seen order", () => {

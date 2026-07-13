@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.6.0] — 2026-07-13
+
+**BREAKING — intra-cluster call steps are now EMITTED** (Fathom row `l5-intracluster-step-sparsity` 3.1.5.3, crit 4). **L5's solid declaration was REOPENED for this.**
+
+`recovery.ts` skipped every call whose source and target sat in the same cluster:
+
+```ts
+if (srcCluster === tgtCluster) continue;  // intra-cluster, skip
+```
+
+That discarded **83.6% of all closure call edges** (2,089 of 2,498 on the Fathom corpus), projecting what survived onto just **45 cluster-pairs**. Distinct operations therefore handed L7a **byte-identical step streams** — the root cause of its confidence saturation — and it is why **1,090 of 1,220 scenarios had ZERO steps** (569 of them lost *every* call to this line; only 490 were genuine leaves).
+
+**The signal was always in the fact graph. L5 simply chose not to emit it.** Its gates passed *honestly* — they measured what L5 CHOSE to emit and never whether that choice carried enough information for the layer above. That is precisely the emission-vs-resolution completeness blind spot `baselines.md` warns about.
+
+### Changed
+
+- `src/recovery.ts` — intra-cluster steps are emitted.
+- `src/types.ts` — `TransitionStep.intraCluster: boolean`. **The marker is not decoration**: it keeps the semantic change OBSERVABLE rather than silent (no-silent-degradation), so a consumer wanting the old inter-cluster-only projection can still recover it by filtering, instead of having the projection imposed on everyone.
+
+### Tests
+
+- The test asserting *"intra-cluster calls collapse (no step)"* **PINNED this bug as intended behaviour**. Flipped, with the history recorded in place.
+- **Red fixture (from the row):** two scenarios with *identical* inter-cluster crossings but different intra-cluster call structure must be distinguishable. Pre-fix they produced byte-identical step streams. 33/33 pass.
+
+**Live:** 2,334 intra-cluster steps recovered on the Fathom corpus (307 → 2,641 total).
+
+**Blast radius:** L5 output ~5×; every downstream L7a partition and `useCaseId` re-forms. Pre-prod — delete + re-analyze.
+
 All notable changes to `@kepello/nodegraph-scenarios`. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [0.5.0] — 2026-07-10
