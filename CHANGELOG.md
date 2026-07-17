@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.1] — 2026-07-16
+
+Peer-floor sync, 3.1.8.4 wave 3a/3b sibling bumps — no code change. `@kepello/nodegraph-dispositions` peer floor `^0.1.0` → `^0.2.0` (0.x caret — did not admit the installed `0.2.0` without the bump).
+
+### Tests
+
+Suite unchanged: 41/41 pass. `npm run build` clean.
+
 ## [0.7.0] — 2026-07-16
 
 Wave 3a of Fathom row `3.1.8.4` (the disposition layer) — L5's slice of the disposition-layer conversion. Design doc: [disposition-layer](../../planning/plans/design/disposition-layer.md) §S3/§S4/§S7 wave 3a. This is the biggest refusal population measured in wave 2's corpus run (**173 of 2,981** L5 closure edges on the home corpus — see wave-2's `[conservation-observe]` line). Two additive changes; no membership-edge behavior removed.
