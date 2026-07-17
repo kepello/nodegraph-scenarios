@@ -15,10 +15,18 @@
  *     target id, independent of the edges' arrival order (5.0.116 M2).
  *   - isBranching is false in v1 (dispatch info absent).
  *   - Determinism: same input → same output.
+ *   - Skipped closure edges are returned as structured `refusals` (Fathom
+ *     row 3.1.8.4 wave 3a): an unresolvable call TARGET is
+ *     `no-cluster-endpoint`; an unresolvable call SOURCE (the unit's own
+ *     containing element) is `unclustered-container`. Exactly one
+ *     refusal per skipped edge, even when both endpoints are unclustered.
+ *   - `refusals` conformance-pins its two reason literals against
+ *     `@kepello/nodegraph-dispositions`'s frozen `REFUSAL_REASONS`.
  */
 
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
+import { REFUSAL_REASONS } from "@kepello/nodegraph-dispositions";
 import { computeScenarios, type CallEdge, type UnitInput } from "./recovery.js";
 
 function unit(overrides: Partial<UnitInput> & { unitId: string; entryElementId: string }): UnitInput {
@@ -223,7 +231,7 @@ test("computeScenarios — stereotype + layer annotations populate when provided
   assert.equal(step.targetLayer, 0);
 });
 
-test("computeScenarios — call to element not in clusterByElement is skipped", () => {
+test("computeScenarios — call to element not in clusterByElement is skipped, returns a no-cluster-endpoint refusal", () => {
   const result = computeScenarios({
     units: [unit({ unitId: "u", entryElementId: "entry" })],
     callEdges: [
@@ -238,6 +246,78 @@ test("computeScenarios — call to element not in clusterByElement is skipped", 
   const steps = result.scenarios[0].steps;
   assert.equal(steps.length, 1);
   assert.equal(steps[0].targetElementId, "known");
+
+  // The skipped edge's TARGET has no resolvable cluster — the call's
+  // own source (`entry`) resolved fine, so this is a `no-cluster-endpoint`
+  // refusal, not `unclustered-container`.
+  assert.equal(result.refusals.length, 1);
+  assert.equal(result.refusals[0].reason, "no-cluster-endpoint");
+  assert.equal(result.refusals[0].candidateRef, "OFF_GRAPH");
+});
+
+test("computeScenarios — unit's own containing element with no cluster returns an unclustered-container refusal", () => {
+  // `helper` is OWNED by the unit (part of walkSources) — so it is the
+  // scenario's own "containing" element, not an arbitrary call target.
+  // A missing cluster HERE is a different failure shape than a missing
+  // cluster on the call's target.
+  const result = computeScenarios({
+    units: [
+      unit({ unitId: "u", entryElementId: "entry", ownedElementIds: ["helper"] }),
+    ],
+    callEdges: [
+      edge("entry", "known", 1),
+      edge("helper", "known", 2),
+    ],
+    clusterByElement: new Map([
+      ["entry", "c0"],
+      ["known", "c1"],
+      // `helper` deliberately absent — never placed in any L3 cluster.
+    ]),
+  });
+  const steps = result.scenarios[0].steps;
+  assert.equal(steps.length, 1, "only entry->known should survive");
+  assert.equal(steps[0].sourceElementId, "entry");
+
+  assert.equal(result.refusals.length, 1);
+  assert.equal(result.refusals[0].reason, "unclustered-container");
+  assert.equal(result.refusals[0].candidateRef, "helper");
+});
+
+test("computeScenarios — both endpoints unclustered produces exactly ONE refusal (source-side wins), not two", () => {
+  // Preserves the L5 stage-ledger arithmetic: one skipped closure edge
+  // must contribute exactly one refusal, however many of its endpoints
+  // are unresolved — see `ScenarioRefusal`'s doc comment.
+  const result = computeScenarios({
+    units: [
+      unit({ unitId: "u", entryElementId: "entry", ownedElementIds: ["orphanContainer"] }),
+    ],
+    callEdges: [edge("orphanContainer", "orphanTarget", 1)],
+    clusterByElement: new Map([
+      ["entry", "c0"],
+      // both `orphanContainer` and `orphanTarget` absent.
+    ]),
+  });
+  assert.equal(result.scenarios[0].steps.length, 0);
+  assert.equal(result.refusals.length, 1);
+  assert.equal(result.refusals[0].reason, "unclustered-container");
+  assert.equal(result.refusals[0].candidateRef, "orphanContainer");
+});
+
+test("computeScenarios — fully-resolved input returns an EMPTY refusals array, never an absent field", () => {
+  const result = computeScenarios({
+    units: [unit({ unitId: "u", entryElementId: "entry" })],
+    callEdges: [edge("entry", "known", 1)],
+    clusterByElement: new Map([
+      ["entry", "c0"],
+      ["known", "c1"],
+    ]),
+  });
+  assert.deepEqual(result.refusals, []);
+});
+
+test("computeScenarios — refusal reasons are byte-identical to @kepello/nodegraph-dispositions's frozen RefusalReason vocabulary", () => {
+  assert.ok(REFUSAL_REASONS.includes("no-cluster-endpoint"));
+  assert.ok(REFUSAL_REASONS.includes("unclustered-container"));
 });
 
 test("computeScenarios — isBranching is false in v1", () => {

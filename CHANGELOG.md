@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.7.0] — 2026-07-16
+
+Wave 3a of Fathom row `3.1.8.4` (the disposition layer) — L5's slice of the disposition-layer conversion. Design doc: [disposition-layer](../../planning/plans/design/disposition-layer.md) §S3/§S4/§S7 wave 3a. This is the biggest refusal population measured in wave 2's corpus run (**173 of 2,981** L5 closure edges on the home corpus — see wave-2's `[conservation-observe]` line). Two additive changes; no membership-edge behavior removed.
+
+### Added
+
+- **`insertScenario` additively emits `analysis-disposition` edges** alongside the existing membership edges (`@kepello/nodegraph-dispositions`'s `recordDispositions`, via this overlay's own `scenario`-domain mutator — the caller-mutator contract per that package's `DomainMismatchError` constraint):
+  - `realizes` — scenario → L2 capability unit. **ALWAYS `targetRef`** in the `<domain>://<naturalKey>` cross-domain-URI form (`capability-unit://<unitId>`), independent of whether the membership `realizes` edge above it resolved to a real node id or stayed dangling. When `ScenarioInput.capabilityUnitId` IS a resolved node id, the disposition edge resolves through the node to its real `naturalKey` first — the disposition form is always the natural key, never a substrate UUID.
+  - `traverses` — scenario → cluster, one edge per DISTINCT cluster in `traversedClusters`. Multiple steps landing in the same cluster still collapse to ONE disposition edge, exactly like the membership `traverses` edge already does under the substrate's `(source, target, type)` uniqueness index; step-level detail (stepIndex, source/target element, stereotype, layer) is never duplicated onto the disposition edge — it stays solely in the scenario node's `metadata.steps`.
+- **`computeScenarios` returns structured `refusals`** (`ComputeScenariosResult.refusals: ScenarioRefusal[]`) — one entry per closure call edge skipped for want of a resolvable cluster endpoint, classifying the SAME `srcCluster === undefined || tgtCluster === undefined` skip condition into the design's two frozen L5 reasons, honestly distinguished by which operand failed (not an invented split):
+  - `unclustered-container` — `edge.source` (always a member of the walking unit's own `entry ∪ owned` set — the element that CONTAINS the call site) has no cluster.
+  - `no-cluster-endpoint` — `edge.source` resolved, but `edge.target` (the call's destination) has no cluster.
+  - Checked `srcCluster` first so a single skipped edge — even one where BOTH endpoints are unclustered — contributes exactly one refusal, preserving the stage-ledger arithmetic (`IN = categorized + Σ refused + residual`) fathom-cli's wave-2 ledger already computes for L5.
+  - `refusals` is always present, never absent (an empty array on a fully-resolved run) — no-silent-degradation.
+  - `computeScenarios` stays graph-write-free: it RETURNS refusals, it does not record them. Wiring `refusals` through `recordRefusal` is wave 3b's job (`fathom-cli`, sequential).
+- New peer dependency: `@kepello/nodegraph-dispositions@^0.1.0`.
+- `ScenarioRefusal` / `ScenarioRefusalReason` exported from the package root.
+
+### Tests
+
+10 new tests (37 → 41, all in `overlay.test.ts` + `recovery.test.ts`), RED-witnessed first (targeted revert of each change, confirmed the specific new test failed for the predicted reason — `computeScenarios` reverted to pre-fix: 4/4 new refusal tests failed with `undefined` where `refusals` was expected; `overlay.ts` reverted: 4/4 new disposition tests failed with 0 edges found) before implementing, then reconfirmed green:
+
+- `recovery.test.ts`: a call-target with no cluster returns `no-cluster-endpoint`; the unit's own owned element with no cluster returns `unclustered-container`; both endpoints unclustered on one edge produces exactly ONE refusal (source-side wins); a fully-resolved run returns `refusals: []`, never `undefined`; a conformance pin asserts both reason literals are byte-identical members of `@kepello/nodegraph-dispositions`'s frozen `REFUSAL_REASONS`.
+- `overlay.test.ts`: the realizes disposition edge uses the domain-prefixed `targetRef` form both when the L2 unit is unmaterialized (mirrors the membership edge's dangling case) AND when it IS materialized (a case the membership edge resolves via `targetId`, but the disposition edge does not — this fixture caught a real bug in the first draft, which used the raw node id instead of resolving its `naturalKey`); traverses disposition edges collapse to one per distinct cluster across repeated-cluster steps, with step detail absent from the edge metadata; disposition edges don't duplicate across an idempotent re-insert.
+
 ## [0.6.0] — 2026-07-13
 
 **BREAKING — intra-cluster call steps are now EMITTED** (Fathom row `l5-intracluster-step-sparsity` 3.1.5.3, crit 4). **L5's solid declaration was REOPENED for this.**

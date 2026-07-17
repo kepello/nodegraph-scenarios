@@ -12,6 +12,32 @@
  * for "which clusters does this scenario touch?"; walking metadata is
  * the path for full step inspection.
  *
+ * Also emits `analysis-disposition` edges (Fathom row 3.1.8.4 wave 3a —
+ * `@kepello/nodegraph-dispositions`'s `recordDispositions`, additive
+ * alongside the membership edges above, per the design doc's §S3):
+ *
+ *   - `realizes` — scenario → L2 capability unit. ALWAYS `targetRef` in
+ *     the `<domain>://<naturalKey>` cross-domain-URI form
+ *     (`capability-unit://<unitId>`), independent of whether the unit
+ *     node is materialized — unlike the membership `realizes` edge
+ *     above, which resolves to `targetId` when it can. Design doc §S3:
+ *     "always targetRef — unchanged" pins this as the STABLE disposition
+ *     query surface even as L2 materialization timing varies.
+ *   - `traverses` — scenario → cluster, one edge per DISTINCT cluster in
+ *     `input.traversedClusters` (already deduplicated by the caller —
+ *     see `ComputedScenario.traversedClusters`'s doc comment). Multiple
+ *     steps landing in the same cluster still collapse to ONE
+ *     disposition edge, exactly like the membership `traverses` edge
+ *     does today; step-level detail (stepIndex, source/target element,
+ *     stereotype, layer) is NEVER duplicated onto the disposition edge —
+ *     it stays solely in the scenario node's `metadata.steps`.
+ *
+ * `capability-unit`'s domain string is a local literal, not imported
+ * from `@kepello/nodegraph-capability-units` — this package has never
+ * taken a runtime dependency on that sibling (see `UnitInput`'s doc
+ * comment in `recovery.ts`: structural typing only), and a bare string
+ * constant is the smallest change consistent with that.
+ *
  * -----------------------------------------------------------------------
  * `realizes` targetRef pattern — query-time structured targets
  * -----------------------------------------------------------------------
@@ -58,6 +84,11 @@
 
 import type { Edge, GraphLayer, GraphMutator, Node } from "@kepello/nodegraph-core";
 import {
+  makeDispositionOverlay,
+  type DispositionCandidate,
+  type DispositionOverlay,
+} from "@kepello/nodegraph-dispositions";
+import {
   SCENARIO_DOMAIN,
   SCENARIO_INDEXES,
   SCENARIO_METADATA_KIND,
@@ -73,8 +104,12 @@ import {
   type ScenarioOverlay,
 } from "./types.js";
 
+/** Local literal — see the module doc comment's "capability-unit's domain string" note. */
+const CAPABILITY_UNIT_DOMAIN = "capability-unit";
+
 export class ScenarioOverlayImpl implements ScenarioOverlay {
   private readonly mutator: GraphMutator<typeof SCENARIO_DOMAIN>;
+  private readonly dispositionOverlay: DispositionOverlay;
 
   constructor(private readonly graph: GraphLayer) {
     // Per Fathom row 5.0.42: registerOverlay returns the domain-scoped mutator.
@@ -84,6 +119,12 @@ export class ScenarioOverlayImpl implements ScenarioOverlay {
         metadataSchema: SCENARIO_METADATA_SCHEMA,
         indexes: SCENARIO_INDEXES,
       });
+    // Fathom row 3.1.8.4 wave 3a — `recordDispositions` edges are
+    // sourced in THIS overlay's own `scenario` domain (never
+    // `disposition`'s), so `this.mutator` above is what gets passed to
+    // it; see `@kepello/nodegraph-dispositions`'s overlay.ts doc comment
+    // for the `DomainMismatchError` constraint that forces this shape.
+    this.dispositionOverlay = makeDispositionOverlay(this.graph);
   }
 
   insertScenario(input: ScenarioInput): ScenarioNode {
@@ -182,6 +223,40 @@ export class ScenarioOverlayImpl implements ScenarioOverlay {
         });
       }
     });
+
+    // Fathom row 3.1.8.4 wave 3a — additive `analysis-disposition` edges,
+    // alongside the membership edges above (module doc comment). ONE
+    // candidate per distinct target; `recordDispositions` itself
+    // collapses repeats within/across calls to one edge per
+    // (source, target) pair.
+    //
+    // `input.capabilityUnitId` may be EITHER the unit's natural key
+    // (content hash — the common cold-analysis case) OR an already-
+    // resolved node id (mirrors the membership realizes edge's own
+    // `byId` branch above). The disposition edge's `domain://naturalKey`
+    // form always needs the REAL natural key — resolve through the node
+    // when `capabilityUnitId` turns out to be an id, else it already IS
+    // the natural key.
+    const capabilityUnitById = this.graph.getNodeById(input.capabilityUnitId);
+    const capabilityUnitNaturalKey =
+      capabilityUnitById !== undefined ? capabilityUnitById.naturalKey : input.capabilityUnitId;
+    const dispositionCandidates: DispositionCandidate[] = [
+      {
+        sourceId: node.id,
+        // ALWAYS the cross-domain URI form — independent of the
+        // membership realizes edge's resolvability above. See the
+        // module doc comment.
+        targetRef: `${CAPABILITY_UNIT_DOMAIN}://${capabilityUnitNaturalKey}`,
+        kind: "realizes",
+      },
+      ...input.traversedClusters.map((clusterId): DispositionCandidate => {
+        const byId = this.graph.getNodeById(clusterId);
+        return byId !== undefined
+          ? { sourceId: node.id, targetId: clusterId, kind: "traverses" }
+          : { sourceId: node.id, targetRef: clusterId, kind: "traverses" };
+      }),
+    ];
+    this.dispositionOverlay.recordDispositions(this.mutator, dispositionCandidates);
 
     return asScenario(node);
   }

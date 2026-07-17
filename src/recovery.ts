@@ -94,8 +94,54 @@ export interface ComputedScenario {
   contentHash: string;
 }
 
+/**
+ * The two L5 negative-disposition reasons, per the disposition-layer
+ * design's frozen vocabulary (`planning/plans/design/disposition-
+ * layer.md` §S4/verify-before-build; `@kepello/nodegraph-dispositions`'s
+ * `RefusalReason`). Not imported from that package — this module stays
+ * dependency-free/pure (module doc above); the two literals here are
+ * pinned byte-identical to the sibling package's vocabulary by
+ * `recovery.test.ts`'s conformance test.
+ *
+ * Both reasons come from the SAME skip condition in `computeScenarios`
+ * (`srcCluster === undefined || tgtCluster === undefined`) but classify
+ * genuinely distinct shapes, not an invented split:
+ *
+ *   - `edge.source` is always a member of the walking unit's OWN
+ *     `walkSources` (entry ∪ owned) — i.e. the element that CONTAINS
+ *     the call site. `srcCluster === undefined` means that containing
+ *     element was never placed in any L3 cluster → `unclustered-container`.
+ *   - `edge.target` is the call's destination, not necessarily part of
+ *     the unit's own closure. `tgtCluster === undefined` means the
+ *     step's target endpoint has no resolvable cluster →
+ *     `no-cluster-endpoint`.
+ */
+export type ScenarioRefusalReason = "no-cluster-endpoint" | "unclustered-container";
+
+/**
+ * One closure call edge that could NOT become a step. Exactly one
+ * refusal per skipped edge (checked `srcCluster` first, `tgtCluster`
+ * second) — preserves the L5 stage-ledger arithmetic (`IN = categorized
+ * + Σ refused + residual`; fathom-cli's `analyze-abstractions.ts` L5
+ * block): double-counting one skipped edge under two reasons would make
+ * `refused` exceed the actual skip count and drive `residual` negative.
+ */
+export interface ScenarioRefusal {
+  /** The element id that failed to resolve to a cluster. */
+  readonly candidateRef: string;
+  readonly reason: ScenarioRefusalReason;
+  readonly detail?: Record<string, unknown>;
+}
+
 export interface ComputeScenariosResult {
   scenarios: readonly ComputedScenario[];
+  /**
+   * Closure call edges skipped for want of a resolvable cluster
+   * endpoint, one entry per skipped edge. Always present (possibly
+   * empty) — a refusal-free run reports an empty array, never an
+   * absent field (no-silent-degradation).
+   */
+  refusals: readonly ScenarioRefusal[];
 }
 
 export function computeScenarios(
@@ -113,6 +159,7 @@ export function computeScenarios(
   }
 
   const scenarios: ComputedScenario[] = [];
+  const refusals: ScenarioRefusal[] = [];
   for (const unit of input.units) {
     // Closure = entry + owned. The unit's `usedElementIds` are call
     // targets, not sources we walk. Sources we walk = entry + owned.
@@ -139,7 +186,25 @@ export function computeScenarios(
     for (const edge of closureEdges) {
       const srcCluster = input.clusterByElement.get(edge.source);
       const tgtCluster = input.clusterByElement.get(edge.target);
-      if (srcCluster === undefined || tgtCluster === undefined) continue;
+      if (srcCluster === undefined || tgtCluster === undefined) {
+        // Checked srcCluster first — see `ScenarioRefusal`'s doc comment
+        // for why this ordering is load-bearing (at most one refusal
+        // per skipped edge, even when BOTH endpoints are unclustered).
+        if (srcCluster === undefined) {
+          refusals.push({
+            candidateRef: edge.source,
+            reason: "unclustered-container",
+            detail: { unitId: unit.unitId, sourceElementId: edge.source, targetElementId: edge.target },
+          });
+        } else {
+          refusals.push({
+            candidateRef: edge.target,
+            reason: "no-cluster-endpoint",
+            detail: { unitId: unit.unitId, sourceElementId: edge.source, targetElementId: edge.target },
+          });
+        }
+        continue;
+      }
 
       // Fathom row `l5-intracluster-step-sparsity` (3.1.5.3): this used to be
       //     `if (srcCluster === tgtCluster) continue;  // intra-cluster, skip`
@@ -208,7 +273,7 @@ export function computeScenarios(
   // Deterministic scenario order: by entryElementId ascending.
   scenarios.sort((a, b) => a.entryElementId.localeCompare(b.entryElementId));
 
-  return { scenarios };
+  return { scenarios, refusals };
 }
 
 function compareByLocation(a: CallEdge, b: CallEdge): number {

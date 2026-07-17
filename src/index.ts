@@ -33,6 +33,8 @@ export {
   type ComputeScenariosInput,
   type ComputeScenariosResult,
   type ComputedScenario,
+  type ScenarioRefusal,
+  type ScenarioRefusalReason,
   type UnitInput,
 } from "./recovery.js";
 

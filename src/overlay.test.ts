@@ -10,6 +10,14 @@
  *   - traverses edges carry stepIndex in `subtype`.
  *   - branchingPointCount counts steps where isBranching === true.
  *   - step `sourceLocation` round-trips through `insertScenario` (5.0.116).
+ *   - insertScenario ADDITIVELY emits `analysis-disposition` edges (Fathom
+ *     row 3.1.8.4 wave 3a): scenario→L2 unit (`realizes`, always
+ *     targetRef in the `<domain>://<naturalKey>` cross-domain form) and
+ *     scenario→cluster (`traverses`, one edge per distinct cluster even
+ *     when multiple steps land in the same cluster — step detail stays
+ *     in the scenario node's `metadata.steps`, never duplicated onto the
+ *     disposition edge). Membership (`realizes`/`traverses`) edges keep
+ *     emitting unchanged, alongside the new disposition edges.
  */
 
 import { test } from "node:test";
@@ -19,6 +27,10 @@ import {
   type GraphLayer,
 } from "@kepello/nodegraph-core";
 import { InMemoryBackend } from "@kepello/nodegraph-core/in-memory";
+import {
+  ANALYSIS_DISPOSITION_EDGE_TYPE,
+  makeDispositionOverlay,
+} from "@kepello/nodegraph-dispositions";
 import {
   SCENARIO_DOMAIN,
   SCENARIO_METADATA_KIND,
@@ -260,4 +272,145 @@ test("branchingPointCount — counts isBranching steps", () => {
 
 test("SCENARIO_DOMAIN — domain identifier", () => {
   assert.equal(SCENARIO_DOMAIN, "scenario");
+});
+
+test("insertScenario — additively emits an analysis-disposition realizes edge, scenario→L2 unit, always targetRef in domain://naturalKey form", () => {
+  const graph = makeGraph();
+  const overlay = makeScenarioOverlay(graph);
+  const node = overlay.insertScenario({
+    scenarioId: "sid-disp-1",
+    capabilityUnitId: "uid-disp-1",
+    entryElementId: "createUser",
+    entryName: "createUser",
+    contentHash: "ch1",
+    steps: [makeStep(0, "controllers", "domain")],
+    traversedClusters: ["controllers", "domain"],
+  });
+
+  // The membership realizes edge is UNCHANGED (dangling — unit not materialized).
+  const membershipRealizes = overlay.realizesEdge("sid-disp-1");
+  assert.ok(membershipRealizes);
+  assert.equal(membershipRealizes.type, REALIZES_EDGE_TYPE);
+
+  const dispositionOverlay = makeDispositionOverlay(graph);
+  const dispositions = dispositionOverlay.dispositionsOf(node.id);
+  const realizesDisposition = dispositions.find((e) => e.subtype === "realizes");
+  assert.ok(realizesDisposition, "expected an analysis-disposition edge with subtype realizes");
+  assert.equal(realizesDisposition!.type, ANALYSIS_DISPOSITION_EDGE_TYPE);
+  assert.equal(realizesDisposition!.targetId, null);
+  // ALWAYS the cross-domain URI form — even though the L2 unit isn't
+  // materialized here (so the membership edge above is bare targetRef
+  // too); the disposition edge's form does not depend on resolvability.
+  assert.equal(realizesDisposition!.targetRef, "capability-unit://uid-disp-1");
+  assert.deepEqual((realizesDisposition!.metadata as { kinds: string[] }).kinds, ["realizes"]);
+});
+
+test("insertScenario — realizes disposition edge ALWAYS uses the domain-prefixed targetRef, even when the L2 unit node IS materialized", () => {
+  const graph = makeGraph();
+  const capabilityUnitMutator = graph.registerOverlay({
+    domain: "capability-unit",
+    schemaVersion: 1,
+    metadataSchema: { type: "object", properties: {} },
+    indexes: [],
+  });
+  const unitNode = graph.transaction(
+    { kind: "insert-unit", producerDomain: "capability-unit", summary: "test fixture unit" },
+    () =>
+      capabilityUnitMutator.insertNode({
+        domain: "capability-unit",
+        naturalKey: "uid-disp-materialized",
+        contentHash: "uch",
+        metadata: {},
+      }),
+  ).result;
+
+  const overlay = makeScenarioOverlay(graph);
+  const node = overlay.insertScenario({
+    scenarioId: "sid-disp-2",
+    capabilityUnitId: unitNode.id,
+    entryElementId: "createUser",
+    entryName: "createUser",
+    contentHash: "ch1",
+    steps: [],
+    traversedClusters: [],
+  });
+
+  // The MEMBERSHIP realizes edge resolves to the real node (targetId) —
+  // existing behavior, unchanged.
+  const membershipRealizes = overlay.realizesEdge("sid-disp-2");
+  assert.equal(membershipRealizes?.targetId, unitNode.id);
+
+  // The DISPOSITION realizes edge still uses targetRef in the
+  // domain-prefixed natural-key form — per the design's "always
+  // targetRef" ruling, independent of the membership edge's resolution.
+  const dispositionOverlay = makeDispositionOverlay(graph);
+  const realizesDisposition = dispositionOverlay
+    .dispositionsOf(node.id)
+    .find((e) => e.subtype === "realizes");
+  assert.ok(realizesDisposition);
+  assert.equal(realizesDisposition!.targetId, null);
+  assert.equal(realizesDisposition!.targetRef, "capability-unit://uid-disp-materialized");
+});
+
+test("insertScenario — traverses disposition edges are ONE per distinct cluster, even when multiple steps land in the same cluster; step detail stays out of the edge", () => {
+  const graph = makeGraph();
+  const overlay = makeScenarioOverlay(graph);
+  // Two DIFFERENT steps both target "domain" — the uniqueness index
+  // already collapses the MEMBERSHIP traverses edge to one per cluster;
+  // this asserts the disposition edge collapses identically (not
+  // secretly one-per-step).
+  const node = overlay.insertScenario({
+    scenarioId: "sid-disp-3",
+    capabilityUnitId: "uid-disp-3",
+    entryElementId: "createUser",
+    entryName: "createUser",
+    contentHash: "ch1",
+    steps: [
+      makeStep(0, "controllers", "domain"),
+      makeStep(1, "domain", "domain"), // both endpoints "domain" again
+    ],
+    traversedClusters: ["controllers", "domain"],
+  });
+
+  const membershipTraverses = overlay.traversesEdges("sid-disp-3");
+  assert.equal(membershipTraverses.length, 2, "membership: one per distinct cluster, unchanged");
+
+  const dispositionOverlay = makeDispositionOverlay(graph);
+  const dispositions = dispositionOverlay.dispositionsOf(node.id);
+  const traversesDispositions = dispositions.filter((e) => e.subtype === "traverses");
+  assert.equal(
+    traversesDispositions.length,
+    2,
+    "one analysis-disposition edge per DISTINCT cluster (controllers, domain) — not one per step",
+  );
+  // Step detail (stepIndex, sourceElementId, etc.) is NOT duplicated
+  // onto the disposition edge — it stays on the scenario node's own
+  // metadata.steps.
+  for (const edge of traversesDispositions) {
+    assert.equal((edge.metadata as Record<string, unknown>).steps, undefined);
+    assert.equal((edge.metadata as Record<string, unknown>).stepIndex, undefined);
+  }
+  assert.equal(node.metadata.steps.length, 2, "full step detail lives on the scenario node");
+});
+
+test("insertScenario — disposition edges do not duplicate on idempotent re-insert (identical content-hash)", () => {
+  const graph = makeGraph();
+  const overlay = makeScenarioOverlay(graph);
+  const input = {
+    scenarioId: "sid-disp-4",
+    capabilityUnitId: "uid-disp-4",
+    entryElementId: "e",
+    entryName: "e",
+    contentHash: "h",
+    steps: [makeStep(0, "c0", "c1")],
+    traversedClusters: ["c0", "c1"],
+  };
+  const a = overlay.insertScenario(input);
+  const b = overlay.insertScenario(input);
+  assert.equal(a.id, b.id);
+
+  const dispositionOverlay = makeDispositionOverlay(graph);
+  const dispositions = dispositionOverlay.dispositionsOf(a.id);
+  assert.equal(dispositions.filter((e) => e.subtype === "realizes").length, 1);
+  assert.equal(dispositions.filter((e) => e.subtype === "traverses").length, 2);
 });
