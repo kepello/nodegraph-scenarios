@@ -100,13 +100,18 @@ export interface ScenarioOverlay {
   listScenarios(): ScenarioNode[];
   getScenario(scenarioId: string): ScenarioNode | undefined;
   scenarioForUnit(capabilityUnitId: string): ScenarioNode | undefined;
-  /** Outgoing `realizes` edge — exactly one per scenario. */
+  /**
+   * Outgoing `analysis-disposition` edge, kind `realizes` — exactly one
+   * per scenario. Fathom row 3.1.8.4 wave 4: this IS the membership
+   * record now (the legacy plain `realizes` edge type retired).
+   */
   realizesEdge(scenarioId: string): Edge | undefined;
-  /** Outgoing `traverses` edges — one per distinct cluster touched, in step order. */
+  /**
+   * Outgoing `analysis-disposition` edges, kind `traverses` — one per
+   * distinct cluster touched. Fathom row 3.1.8.4 wave 4: this IS the
+   * membership record now (the legacy plain `traverses` edge type,
+   * whose `subtype` carried the stepIndex, retired — step detail lives
+   * solely in the scenario node's `metadata.steps`).
+   */
   traversesEdges(scenarioId: string): Edge[];
 }
-
-/** Edge type: scenario → L2 capability unit it represents. */
-export const REALIZES_EDGE_TYPE = "realizes";
-/** Edge type: scenario → cluster touched (in order via metadata; `subtype` carries step index). */
-export const TRAVERSES_EDGE_TYPE = "traverses";

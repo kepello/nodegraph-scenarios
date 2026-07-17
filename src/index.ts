@@ -13,8 +13,6 @@ export {
 
 // Types
 export {
-  REALIZES_EDGE_TYPE,
-  TRAVERSES_EDGE_TYPE,
   type ScenarioInput,
   type ScenarioMetadata,
   type ScenarioNode,
