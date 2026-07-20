@@ -1,6 +1,6 @@
 {
   "name": "@kepello/nodegraph-scenarios",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Scenario / flow recovery for @kepello/nodegraph: per L2 capability unit, an ordered inter-cluster trace at static-analysis fidelity. Fifth layer of the Layered Code Abstraction arc.",
   "type": "module",
   "main": "dist/index.js",
@@ -23,7 +23,7 @@
   },
   "peerDependencies": {
     "@kepello/nodegraph-core": "^5.12.0",
-    "@kepello/nodegraph-dispositions": "^0.2.0"
+    "@kepello/nodegraph-dispositions": "^0.3.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
